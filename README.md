@@ -10,8 +10,8 @@ A Dynamic Island for Windows 10 and 11, written in C++ with Win32, Direct2D, Dir
 
 ## Install
 
-1. Download `LostIsland-1.0.1-win64.zip` from [Releases](https://github.com/byte4day/lost-island-windows/releases/latest) and unzip it anywhere.
-2. Run `LostIsland.exe`. The island appears at the top of your main display, and Settings opens the first time.
+1. Download `LostIsland.exe` from [Releases](https://github.com/byte4day/lost-island-windows/releases/latest). The zip has the same `.exe` with the README and license.
+2. Run `LostIsland.exe` from any folder. The island appears at the top of your main display, and Settings opens the first time.
 3. Optional: turn on **Start with Windows** in Settings › General.
 
 Windows SmartScreen may warn about an unsigned app the first time. Choose **More info › Run anyway**.
