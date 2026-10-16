@@ -8,6 +8,7 @@
 #include <windowsx.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <shobjidl.h>
 
 #include <algorithm>
 #include <cmath>
@@ -84,7 +85,7 @@ const PageDef kPages[] = {
     {L"appearance", L"Appearance", L"palette", 0xBF5AF2,
      L"accent color card style black graphite 24-hour clock show seconds eq bars music", 0},
     {L"controls", L"Controls", L"grid", 0xFF9F0A,
-     L"in the card available launchers wi-fi bluetooth sound mic focus dark cast screenshot clipboard lock timer", 0},
+     L"in the card available launchers wi-fi bluetooth sound mic focus dark cast screenshot clipboard lock timer wallpaper wallpapers folder fill fit", 0},
     {L"activities", L"Live Activities", L"sparkles", 0xFF375F,
      L"music timer claude downloads peeks volume caps lock charger track focus timer length chime weather city units", 1},
     {L"claude", L"Claude Code", L"spark", 0xD97757, L"hooks install remove status permission terminal", 1},
@@ -817,6 +818,34 @@ void ListEditor(std::vector<std::wstring>* list, const std::vector<std::wstring>
     Group(avail);
 }
 
+// Folder picker for the wallpaper library (the shell's own dialog).
+void ChooseWallpaperFolder() {
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    DWORD opts = 0;
+    dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    dlg->SetTitle(L"Wallpaper folder");
+    IShellItem* start = nullptr;
+    if (SUCCEEDED(SHCreateItemFromParsingName(wallpaper::Folder().c_str(), nullptr, IID_PPV_ARGS(&start)))) {
+        dlg->SetFolder(start);
+        start->Release();
+    }
+    if (SUCCEEDED(dlg->Show(S.hwnd))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR path = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) {
+                g_config.wallpaperFolder = path;
+                Changed();
+            }
+            CoTaskMemFree(path);
+            item->Release();
+        }
+    }
+    dlg->Release();
+}
+
 void PageControls() {
     std::vector<std::wstring> allC, allL;
     for (auto& c : AllControls()) allC.push_back(c.id);
@@ -845,6 +874,31 @@ void PageControls() {
             return std::wstring(d ? d->label : id.c_str());
         },
         L"l");
+    Section(L"Wallpapers");
+    Row folder;
+    folder.title = L"Folder";
+    folder.subtitle = wallpaper::Folder();
+    folder.trailing = [](D2D1_RECT_F rr) {
+        float left = ButtonCtl(L"btn:wpchoose", L"Choose\u2026", rr.right, Mid(rr), false, [] { ChooseWallpaperFolder(); });
+        ButtonCtl(L"btn:wpopen", L"Open", left - 8, Mid(rr), false,
+                  [] { ShellExecuteW(S.hwnd, L"open", wallpaper::Folder().c_str(), nullptr, nullptr, SW_SHOWNORMAL); });
+    };
+    Row reset;
+    reset.title = L"Use the default folder";
+    reset.subtitle = L"Pictures\\Wallpapers, or Pictures";
+    reset.trailing = [](D2D1_RECT_F rr) {
+        ButtonCtl(L"btn:wpdefault", L"Reset", rr.right, Mid(rr), false, [] {
+            g_config.wallpaperFolder.clear();
+            Changed();
+        });
+    };
+    std::vector<Row> rows = {folder};
+    if (!g_config.wallpaperFolder.empty()) rows.push_back(reset);
+    rows.push_back(PopupRow(L"Fit", L"How the picture fills each screen",
+                            {{L"Fill", L"fill"}, {L"Fit", L"fit"}, {L"Stretch", L"stretch"}, {L"Center", L"center"},
+                             {L"Tile", L"tile"}, {L"Span", L"span"}},
+                            &g_config.wallpaperFit));
+    Group(rows);
 }
 
 void CommitCity() {
