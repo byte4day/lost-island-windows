@@ -106,6 +106,8 @@ public:
                   bool mono = false);
     void DrawImage(Image& img, D2D1_RECT_F r, float radius, float opacity = 1);
 
+    void PushClipRect(D2D1_RECT_F r);
+    void PopClipRect();
     void PushClipRound(D2D1_RECT_F r, float radius);
     void PopClip();
     void PushOpacity(float o);

@@ -310,26 +310,32 @@ float Canvas::Measure(const std::wstring& s, float size, DWRITE_FONT_WEIGHT w, b
     return m.widthIncludingTrailingWhitespace;
 }
 
+// Images are painted with a bitmap brush inside the rounded shape, so the
+// edge is anti-aliased and nothing ever spills outside it (no layer needed).
 void Canvas::DrawImage(Image& img, D2D1_RECT_F r, float radius, float opacity) {
     ID2D1Bitmap* b = img.For(rt_);
     if (!b) return;
-    // cover-fit: crop the source to the destination's aspect
     float sw = (float)img.w, sh = (float)img.h;
     float dw = r.right - r.left, dh = r.bottom - r.top;
-    D2D1_RECT_F src = D2D1::RectF(0, 0, sw, sh);
-    if (sw / sh > dw / dh) {
-        float cw = sh * dw / dh;
-        src.left = (sw - cw) / 2;
-        src.right = src.left + cw;
-    } else {
-        float ch = sw * dh / dw;
-        src.top = (sh - ch) / 2;
-        src.bottom = src.top + ch;
-    }
-    if (radius > 0) PushClipRound(r, radius);
-    rt_->DrawBitmap(b, r, opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src);
-    if (radius > 0) PopClip();
+    // cover-fit: scale so the image fills the box, centred
+    float scale = std::max(dw / sw, dh / sh);
+    float ox = r.left + (dw - sw * scale) / 2, oy = r.top + (dh - sh * scale) / 2;
+    D2D1_SIZE_F bs = b->GetSize();   // DIPs at the bitmap's DPI
+    float kx = sw / bs.width, ky = sh / bs.height;
+    ID2D1BitmapBrush* brush = nullptr;
+    if (FAILED(rt_->CreateBitmapBrush(b, D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP,
+                                                                      D2D1_BITMAP_INTERPOLATION_MODE_LINEAR),
+                                      D2D1::BrushProperties(opacity), &brush)))
+        return;
+    brush->SetTransform(D2D1::Matrix3x2F::Scale(scale * kx, scale * ky) * D2D1::Matrix3x2F::Translation(ox, oy));
+    radius = std::min(radius, std::min(dw, dh) / 2);
+    if (radius > 0) rt_->FillRoundedRectangle(D2D1::RoundedRect(r, radius, radius), brush);
+    else rt_->FillRectangle(r, brush);
+    brush->Release();
 }
+
+void Canvas::PushClipRect(D2D1_RECT_F r) { rt_->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE); }
+void Canvas::PopClipRect() { rt_->PopAxisAlignedClip(); }
 
 void Canvas::PushClipRound(D2D1_RECT_F r, float radius) {
     ID2D1RoundedRectangleGeometry* g = nullptr;

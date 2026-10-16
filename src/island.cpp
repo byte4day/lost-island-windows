@@ -470,6 +470,8 @@ void drawRing(Canvas& c, float cx, float cy, float rad, float frac, Color col, f
 Color artColor() {
     if (!g_art.src) return accent();
     Color a = g_art.average;
+    float mx = std::max({a.r, a.g, a.b}), mn = std::min({a.r, a.g, a.b});
+    if (mx <= 0 || (mx - mn) / mx < 0.35f) return accent();   // dull or brownish covers: use the accent
     // lift dark covers so the bars stay visible on black
     float lum = 0.3f * a.r + 0.59f * a.g + 0.11f * a.b;
     if (lum < 0.45f) a = a.mix(Color(1, 1, 1), (0.45f - lum) * 1.3f);
@@ -505,9 +507,9 @@ void drawPillContent(Canvas& c, D2D1_RECT_F r, Act a) {
         break;
     }
     case Act::Music: {
-        D2D1_RECT_F art = Rect(L + 8, cy - 11.5f, 23, 23);
-        if (g_art.src) c.DrawImage(g_art, art, 6);
-        else { c.FillRound(art, 6, pal::raisedHover); DrawIcon(c, L"music", L + 19.5f, cy, 14, pal::ink2, 1.4f); }
+        D2D1_RECT_F art = Rect(L + 7, cy - 12, 24, 24);
+        if (g_art.src) c.DrawImage(g_art, art, 12);
+        else { c.FillCircle(L + 19, cy, 12, pal::raisedHover); DrawIcon(c, L"music", L + 19, cy, 13, pal::ink2, 1.4f); }
         c.Text(g_media.title, D2D1::RectF(L + 40, r.top, R - 40, r.bottom), 13, Color(0.96f, 0.96f, 0.97f, 0.92f),
                DWRITE_FONT_WEIGHT_SEMI_BOLD);
         if (g_config.showEq) drawEq(c, R - 30, cy, 15, artColor());
@@ -552,7 +554,7 @@ void drawBubbleContent(Canvas& c, float cx, float cy, float size, Act a) {
     float rad = size / 2;
     switch (a) {
     case Act::Music:
-        if (g_art.src) c.DrawImage(g_art, Rect(cx - rad + 5, cy - rad + 5, size - 10, size - 10), rad - 5);
+        if (g_art.src) c.DrawImage(g_art, Rect(cx - rad + 4, cy - rad + 4, size - 8, size - 8), rad - 4);
         else drawEq(c, cx - 9, cy, 14, artColor());
         break;
     case Act::ClaudeNeeds:
@@ -582,7 +584,7 @@ void drawPeek(Canvas& c, D2D1_RECT_F r) {
     } else if (g_peek.icon == L"spark") {
         DrawSpark(c, x + 10, cy, 20, pal::claude);
     } else if (g_peek.icon == L"art" && g_art.src) {
-        c.DrawImage(g_art, Rect(x, cy - 12, 24, 24), 6);
+        c.DrawImage(g_art, Rect(x, cy - 12, 24, 24), 12);
     } else {
         Color ic = g_peek.icon == L"bolt" ? pal::ok : pal::ink;
         DrawIcon(c, g_peek.icon, x + 10, cy, 20, ic, 1.6f);
@@ -618,11 +620,9 @@ ControlState controlState(const ControlDef& d) {
     if (id == L"wifi") {
         s.on = radios::Available(RadioKind::WiFi) ? radios::IsOn(RadioKind::WiFi) : !network::WifiName().empty();
         s.sub = network::WifiName();
-        if (s.sub.empty()) s.sub = s.on ? L"On" : L"Off";
     } else if (id == L"bluetooth") {
         s.dim = !radios::Available(RadioKind::Bluetooth);
         s.on = radios::IsOn(RadioKind::Bluetooth);
-        s.sub = s.on ? L"On" : L"Off";
     } else if (id == L"sound") {
         s.on = !audio::Muted();
         if (!s.on) s.icon = L"speaker-off";
@@ -667,50 +667,34 @@ void drawControlCell(Canvas& c, float cx, float top, const ControlDef& d, int id
     c.SetTransform(old);
 }
 
+Image g_brand[3];   // claude, codex, cursor (resources 3-5)
+
 void drawLauncherIcon(Canvas& c, const LauncherDef& l, float cx, float cy) {
     std::wstring id = l.id;
-    if (id == L"claude") DrawSpark(c, cx, cy, 18, pal::claude);
-    else if (id == L"codex") {
-        // Codex: a rounded hexagon outline
-        for (int i = 0; i < 6; i++) {
-            float a0 = (60.f * i - 90) * 3.14159f / 180, a1 = (60.f * (i + 1) - 90) * 3.14159f / 180;
-            c.Line(cx + 8 * std::cos(a0), cy + 8 * std::sin(a0), cx + 8 * std::cos(a1), cy + 8 * std::sin(a1), pal::ink, 1.8f);
-        }
-        c.FillCircle(cx, cy, 2.2f, pal::ink);
-    } else if (id == L"cursor") {
-        c.Line(cx - 7, cy - 4, cx, cy - 8, Color::Hex(l.color), 1.6f);
-        c.Line(cx, cy - 8, cx + 7, cy - 4, Color::Hex(l.color), 1.6f);
-        c.Line(cx - 7, cy - 4, cx - 7, cy + 4, Color::Hex(l.color), 1.6f);
-        c.Line(cx + 7, cy - 4, cx + 7, cy + 4, Color::Hex(l.color), 1.6f);
-        c.Line(cx - 7, cy + 4, cx, cy + 8, Color::Hex(l.color), 1.6f);
-        c.Line(cx, cy + 8, cx + 7, cy + 4, Color::Hex(l.color), 1.6f);
-        c.Line(cx - 7, cy - 4, cx, cy, pal::ink, 1.6f);
-        c.Line(cx, cy, cx + 7, cy - 4, pal::ink, 1.6f);
-        c.Line(cx, cy, cx, cy + 8, pal::ink, 1.6f);
-    } else {
-        DrawIcon(c, L"terminal", cx, cy, 18, Color::Hex(l.color), 1.6f);
+    int i = id == L"claude" ? 0 : id == L"codex" ? 1 : id == L"cursor" ? 2 : -1;
+    if (i >= 0) {
+        if (!g_brand[i].src) g_brand[i].LoadResource(3 + i);
+        if (g_brand[i].src) { c.DrawImage(g_brand[i], Rect(cx - 9, cy - 9, 18, 18), 0); return; }
     }
+    DrawIcon(c, L"terminal", cx, cy, 18, Color::Hex(l.color), 1.6f);
 }
 
 void drawPlayer(Canvas& c, float x, float y, float w, float h) {
-    Color tint = g_art.src ? g_art.average : Color::Hex(0x2C2C2E);
-    Color top = Color(0.11f, 0.11f, 0.12f).mix(tint, 0.42f);
-    Color bot = Color(0.07f, 0.07f, 0.08f).mix(tint, 0.18f);
-    c.LinearV(Rect(x, y, w, h), 22, top, bot);
+    // a plain platter like the rest of the card; the art carries the color
+    c.FillRound(Rect(x, y, w, h), 22, pal::glass);
+    c.StrokeRound(Rect(x + 0.5f, y + 0.5f, w - 1, h - 1), 22, pal::hairline, 1);
     D2D1_RECT_F art = Rect(x + 14, y + 14, 64, 64);
-    if (g_art.src) c.DrawImage(g_art, art, 14);
-    else {
-        c.FillRound(art, 14, Color(1, 1, 1, 0.1f));
-        DrawIcon(c, L"music", x + 46, y + 46, 28, pal::ink2, 1.5f);
+    if (g_art.src) {
+        c.DrawImage(g_art, art, 32);
+        c.StrokeCircle(x + 46, y + 46, 31.5f, Color(1, 1, 1, 0.12f), 1);
+    } else {
+        c.FillCircle(x + 46, y + 46, 32, Color(1, 1, 1, 0.1f));
+        DrawIcon(c, L"music", x + 46, y + 46, 26, pal::ink2, 1.5f);
     }
     std::wstring app = appName(g_media.appId);
-    c.Text(g_media.title, Rect(x + 92, y + 18, w - 92 - 50, 20), 15, pal::ink, DWRITE_FONT_WEIGHT_SEMI_BOLD, Align::Left, false);
+    c.Text(g_media.title, Rect(x + 92, y + 19, w - 92 - 50, 20), 15, pal::ink, DWRITE_FONT_WEIGHT_SEMI_BOLD, Align::Left, false);
     c.Text(g_media.artist, Rect(x + 92, y + 40, w - 92 - 16, 18), 13, pal::ink2, DWRITE_FONT_WEIGHT_NORMAL, Align::Left, false);
-    if (!app.empty()) {
-        float bw = c.Measure(app, 10, DWRITE_FONT_WEIGHT_SEMI_BOLD) + 14;
-        c.FillRound(Rect(x + 92, y + 61, bw, 17), 8.5f, Color(1, 1, 1, 0.12f));
-        c.Text(app, Rect(x + 92, y + 61, bw, 17), 10, pal::ink2, DWRITE_FONT_WEIGHT_SEMI_BOLD, Align::Center);
-    }
+    if (!app.empty()) c.Text(app, Rect(x + 92, y + 60, w - 92 - 16, 16), 11, pal::ink3, DWRITE_FONT_WEIGHT_SEMI_BOLD, Align::Left, false);
     if (g_config.showEq && g_media.playing) drawEq(c, x + w - 34, y + 30, 16, artColor());
     float yy = y + 90;
     if (g_media.hasTimeline) {
@@ -1034,8 +1018,7 @@ void render() {
         }
 
         // content, clipped to the moving shape and faded in after each change
-        if (notch()) c.PushClipRound(D2D1::RectF(s.left, s.top - 40, s.right, s.bottom), g_r.x);
-        else c.PushClipRound(s, g_r.x);
+        c.PushClipRect(s);
         c.PushOpacity(std::clamp(g_alpha.x, 0.f, 1.f));
         if (g_mode == Mode::Card) {
             float x0 = kWinW / 2 - kCardW / 2, y0 = topY();
@@ -1050,7 +1033,7 @@ void render() {
             drawPillContent(c, Rect(kWinW / 2 - t.w / 2, topY(), t.w, t.h), primaryAct());
         }
         c.PopOpacity();
-        c.PopClip();
+        c.PopClipRect();
         if (g_mode != Mode::Card) hit(s, L"pill");
 
         // the detached bubble for the second live activity

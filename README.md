@@ -10,7 +10,7 @@ A Dynamic Island for Windows 10 and 11, written in C++ with Win32, Direct2D, Dir
 
 ## Install
 
-1. Download `LostIsland-1.0.0-win64.zip` from [Releases](https://github.com/byte4day/lost-island-windows/releases/latest) and unzip it anywhere.
+1. Download `LostIsland-1.0.1-win64.zip` from [Releases](https://github.com/byte4day/lost-island-windows/releases/latest) and unzip it anywhere.
 2. Run `LostIsland.exe`. The island appears at the top of your main display, and Settings opens the first time.
 3. Optional: turn on **Start with Windows** in Settings › General.
 
@@ -42,11 +42,11 @@ Windows SmartScreen may warn about an unsigned app the first time. Choose **More
 
 ## The card
 
-- **Music player.** Cover, title, artist, the app's name, a seek bar you can click, and previous, play and next. The player is tinted by the album art. When a player publishes no track length, the seek bar is hidden.
+- **Music player.** Round cover, title, artist, the app's name, a seek bar you can click, and previous, play and next. The EQ bars take the album's color, or the accent color for dull covers. When a player publishes no track length, the seek bar is hidden.
 - **Claude Code sessions.** Each session with its project and what it is doing. Click one to bring its terminal to the front.
 - **Controls.** Round buttons, blue when on: Wi-Fi, Bluetooth, Sound, Mic, Focus, Dark mode, Cast, Screen (full screenshot saved to `Pictures\Screenshots` and copied), Area (Windows' snipping overlay), Color picker with a magnifier, Clipboard history, Lock. Night light, Record, Files, Timer, Power and Settings can be added. Right-click a control to open its page in Windows Settings.
 - **Volume and brightness** bars. Brightness shows on laptops (WMI) and on external monitors that support DDC/CI.
-- **Launchers** for the Claude Code, Codex and Cursor CLIs, opened in Windows Terminal. Terminal and PowerShell can be added.
+- **Launchers** with the Claude, Codex and Cursor logos for their CLIs, opened in Windows Terminal. Terminal and PowerShell can be added.
 - **Info line.** Focus timer (click to start or pause, scroll to set 5 to 90 minutes), weather, battery, and the Edit, Power and Settings buttons.
 - **Clipboard** lists the last 25 pieces of text you copied. Click one to copy it again. History is kept in memory only, and text that password managers mark as private is skipped.
 - **Power** has Lock, Sign out, Sleep, Restart and Shut down. Every action except Lock asks for a second click within 4 seconds.
@@ -128,7 +128,7 @@ On Linux, cross-compile with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw
 LLVM_MINGW=/path/to/llvm-mingw ./scripts/build.sh   # writes build/LostIsland.exe
 ```
 
-Release 1.0.0 was built with llvm-mingw 20261006. The MinGW build links statically, so the `.exe` needs no extra DLLs. The Visual Studio route is set up in CMake but has not been tested yet.
+Releases are built with llvm-mingw 20261006. The MinGW build links statically, so the `.exe` needs no extra DLLs. The Visual Studio route is set up in CMake but has not been tested yet.
 
 ## Limits
 
@@ -136,7 +136,7 @@ Release 1.0.0 was built with llvm-mingw 20261006. The MinGW build links statical
 - **Record** sends Snipping Tool's recording shortcut, which needs a current Windows 11.
 - **Wi-Fi** and **Bluetooth** need a radio that Windows exposes as switchable. Otherwise the buttons open Settings.
 - Notification banners are not shown. Reading other apps' notifications requires a packaged app with the notification listener capability.
-- The screenshots in this README were rendered with the release build running under Wine on Linux. Wine does not clip rounded images, so album art appears square in them.
+- The screenshots in this README were rendered with the release build running under Wine on Linux, so fonts differ from Windows (Noto Sans instead of Segoe UI).
 - The sample song and Claude request in the screenshots come from `LOSTISLAND_DEMO=1`, an environment variable that exists only for screenshots.
 
 ## Credits
