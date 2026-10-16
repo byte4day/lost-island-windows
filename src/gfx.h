@@ -73,6 +73,7 @@ struct Image {
 
     bool Decode(const std::vector<uint8_t>& bytes, UINT maxSide = 256);
     bool LoadResource(int id, const wchar_t* type = L"PNG");
+    bool FromPixels(UINT w, UINT h, const std::vector<uint8_t>& pbgra);   // 32bpp premultiplied BGRA
     ID2D1Bitmap* For(ID2D1RenderTarget* rt);
     void Reset();
     ~Image() { Reset(); }

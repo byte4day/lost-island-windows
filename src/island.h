@@ -6,7 +6,7 @@
 constexpr UINT WM_APP_CMD = WM_APP + 41;   // wParam = IslandCmd, from a second instance or the tray
 constexpr UINT WM_APP_TRAY = WM_APP + 42;
 
-enum IslandCmd : WPARAM { CMD_TOGGLE = 1, CMD_TIMER, CMD_SETTINGS, CMD_QUIT, CMD_OPEN, CMD_CLOSE };
+enum IslandCmd : WPARAM { CMD_TOGGLE = 1, CMD_TIMER, CMD_SETTINGS, CMD_QUIT, CMD_OPEN, CMD_CLOSE, CMD_WALLPAPERS };
 
 namespace island {
 bool Create(HINSTANCE inst);

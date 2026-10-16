@@ -132,6 +132,19 @@ bool Image::LoadResource(int id, const wchar_t* type) {
     return Decode(std::vector<uint8_t>(data, data + size), 512);
 }
 
+bool Image::FromPixels(UINT pw, UINT ph, const std::vector<uint8_t>& pbgra) {
+    Reset();
+    if (!g_gfx.wic || !pw || !ph || pbgra.size() < (size_t)pw * ph * 4) return false;
+    IWICBitmap* b = nullptr;
+    if (FAILED(g_gfx.wic->CreateBitmapFromMemory(pw, ph, GUID_WICPixelFormat32bppPBGRA, pw * 4, (UINT)pbgra.size(),
+                                                 const_cast<BYTE*>(pbgra.data()), &b)))
+        return false;
+    src = b;
+    w = pw;
+    h = ph;
+    return true;
+}
+
 ID2D1Bitmap* Image::For(ID2D1RenderTarget* rt) {
     if (!src) return nullptr;
     if (bmp && owner == rt) return bmp;

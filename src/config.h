@@ -32,6 +32,10 @@ struct Config {
     std::wstring weatherCity;            // empty = locate by IP
     bool fahrenheit = false;
 
+    // Wallpaper picker
+    std::wstring wallpaperFolder;        // empty = Pictures\Wallpapers
+    std::wstring wallpaperFit = L"fill"; // fill | fit | stretch | center | tile | span
+
     // Card layout
     std::vector<std::wstring> controls;
     std::vector<std::wstring> launchers;

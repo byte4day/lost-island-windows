@@ -48,6 +48,7 @@ Windows SmartScreen may warn about an unsigned app the first time. Choose **More
 - **Volume and brightness** bars. Brightness shows on laptops (WMI) and on external monitors that support DDC/CI.
 - **Launchers** with the Claude, Codex and Cursor logos for their CLIs, opened in Windows Terminal. Terminal and PowerShell can be added.
 - **Info line.** Focus timer (click to start or pause, scroll to set 5 to 90 minutes), weather, battery, and the Edit, Power and Settings buttons.
+- **Wallpapers** (add the Wallpaper control in edit mode, or run `LostIsland.exe --wallpapers`): a carousel of `Pictures\Wallpapers`, after Tide Island's switcher. The middle card is full size and its neighbours shrink and fade. Click a side card, scroll or press ←/→ to move; click the middle card or press Enter to set it for every monitor. Type to search by name, Backspace to edit, Esc to clear or close. Set `wallpaper_folder` and `wallpaper_fit` (`fill`, `fit`, `stretch`, `center`, `tile`, `span`) in `config.json`. Thumbnails are made in the background and dropped when the picker closes.
 - **Clipboard** lists the last 25 pieces of text you copied. Click one to copy it again. History is kept in memory only, and text that password managers mark as private is skipped.
 - **Power** has Lock, Sign out, Sleep, Restart and Shut down. Every action except Lock asks for a second click within 4 seconds.
 

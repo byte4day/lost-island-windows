@@ -20,6 +20,7 @@ enum ServiceId : WPARAM {
     SVC_CLAUDE,
     SVC_DOWNLOADS,
     SVC_NETWORK,
+    SVC_WALLPAPER,
 };
 
 // ---------------------------------------------------------------- media
@@ -158,6 +159,27 @@ namespace downloads {
 void Start(HWND notify);
 void Stop();
 std::vector<Transfer> Active();
+}
+
+// ---------------------------------------------------------------- wallpaper
+// The card's wallpaper picker. Thumbnails decode on a worker thread and
+// post SVC_WALLPAPER as each one lands.
+namespace wallpaper {
+constexpr UINT kThumbW = 320, kThumbH = 184;
+struct Thumb {
+    UINT w = 0, h = 0;               // 0 when the file could not be decoded
+    std::vector<uint8_t> pixels;     // 32bpp premultiplied BGRA
+};
+void Start(HWND notify);
+std::wstring Folder();               // config, else Pictures\Wallpapers, else Pictures
+std::vector<std::wstring> List();    // image files in Folder(), sorted by name
+std::wstring Name(const std::wstring& path);
+bool Matches(const std::wstring& path, const std::wstring& query);
+std::wstring Current();
+const Thumb* Get(const std::wstring& path);   // nullptr until ready (queues it)
+void Prioritise(const std::vector<std::wstring>& first);
+void Release();                      // drop thumbnails while the picker is closed
+bool Set(const std::wstring& path, std::wstring& error);
 }
 
 // ---------------------------------------------------------------- system

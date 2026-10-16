@@ -135,6 +135,10 @@ void DrawIcon(Canvas& c, const std::wstring& n, float cx, float cy, float size, 
         p.frrect(8.5f, 3, 7, 3.5f, 1.3f);
         p.line(8.5f, 11, 15.5f, 11);
         p.line(8.5f, 15, 13.5f, 15);
+    } else if (n == L"wallpaper") {
+        p.rrect(3, 5, 18, 14, 2.4f);
+        p.poly({P(5.5f, 16.5f), P(10, 11), P(13, 14), P(15, 12), P(18.5f, 16.5f)}, false, false);
+        p.dot(15.5f, 8.8f, 1.6f);
     } else if (n == L"lock") {
         p.frrect(5, 10.5f, 14, 10.5f, 2.2f);
         p.arc(12, 9, 4.5f, -90, 180);

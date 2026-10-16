@@ -2,6 +2,7 @@
 //
 //   LostIsland.exe                     start (or open Settings if already running)
 //   LostIsland.exe --toggle            open or close the card
+//   LostIsland.exe --wallpapers        open the wallpaper picker
 //   LostIsland.exe --timer             start or pause the focus timer
 //   LostIsland.exe --settings [page]   open the control panel
 //   LostIsland.exe --quit              quit the running island
@@ -107,6 +108,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         else if (cmd == L"--quit") c = CMD_QUIT;
         else if (cmd == L"--open") c = CMD_OPEN;
         else if (cmd == L"--close") c = CMD_CLOSE;
+        else if (cmd == L"--wallpapers") c = CMD_WALLPAPERS;
         sendToRunning(c);
         if (mutex) CloseHandle(mutex);
         return 0;

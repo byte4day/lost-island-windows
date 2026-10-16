@@ -28,6 +28,7 @@ const std::vector<ControlDef>& AllControls() {
         {L"timer", L"Timer", L"timer", false},
         {L"settings", L"Settings", L"gear", false},
         {L"files", L"Files", L"folder", false},
+        {L"wallpaper", L"Wallpaper", L"wallpaper", false},
     };
     return v;
 }
@@ -135,6 +136,9 @@ void Config::Load() {
     str("weather_city", weatherCity, {});
     flag("fahrenheit", fahrenheit);
     str("hotkey", hotkey, {L"ctrl+alt+i", L"win+alt+i", L"ctrl+shift+space", L"off"});
+    str("wallpaper_folder", wallpaperFolder, {});
+    str("wallpaper_fit", wallpaperFit, {L"fill", L"fit", L"stretch", L"center", L"tile", L"span"});
+    if (wallpaperFolder.size() > 260) wallpaperFolder.clear();
     if (weatherCity.size() > 80) weatherCity.resize(80);
     controls = readList(v["controls"], DefaultControls(), [](const std::wstring& s) { return FindControl(s) != nullptr; });
     launchers = readList(v["launchers"], DefaultLaunchers(), [](const std::wstring& s) { return FindLauncher(s) != nullptr; });
@@ -168,6 +172,8 @@ void Config::Save() const {
     v.set("weather_city", weatherCity);
     v.set("fahrenheit", fahrenheit);
     v.set("hotkey", hotkey);
+    v.set("wallpaper_folder", wallpaperFolder);
+    v.set("wallpaper_fit", wallpaperFit);
     json::Value c = json::Value::Array();
     for (auto& s : controls) c.push(json::Value(s));
     v.set("controls", c);

@@ -35,7 +35,7 @@ constexpr UINT_PTR kTimerAnim = 1, kTimerTick = 2, kTimerLong = 3, kTimerHover =
 constexpr int kHotkeyId = 7;
 
 enum class Mode { Rest, Peek, Card };
-enum class Page { Main, Clipboard, Power };
+enum class Page { Main, Clipboard, Power, Wallpapers };
 enum class Act { None, ClaudeNeeds, Music, ClaudeWork, ClaudeDone, Download, Timer };
 
 struct Spring {
@@ -95,6 +95,14 @@ float g_dragX = 0, g_dragY = 0;
 std::wstring g_slider;               // "vol" or "bright" while dragging
 
 PeekInfo g_peek;
+
+// wallpaper picker (Page::Wallpapers); everything here is dropped on close
+std::vector<std::wstring> g_wallAll, g_wallItems;
+std::wstring g_wallQuery, g_wallActive, g_wallMsg;
+std::map<std::wstring, Image> g_wallImgs;
+Spring g_wallPos;                    // carousel position in items, eases to .t
+int g_wallTarget = 0;
+bool g_wallKeys = false;             // opened from the keyboard: Esc closes the card
 std::wstring g_confirm;
 ULONGLONG g_confirmUntil = 0;
 
@@ -325,6 +333,10 @@ CardLayout cardLayout() {
         L.height = 18 + 34 + 8 + 5 * 44.f + 16;
         return L;
     }
+    if (g_page == Page::Wallpapers) {
+        L.height = 18 + 34 + 8 + 118 + 26 + 14;
+        return L;
+    }
     L.yHeader = y;
     L.header = g_media.active && !g_media.title.empty() ? (g_media.hasTimeline ? 158.f : 132.f) : 80.f;
     y += L.header + 12;
@@ -401,13 +413,14 @@ void pickMonitor() {
 // ------------------------------------------------------------ animation
 void kick();
 
+void closeWallpapers();
 void setMode(Mode m) {
     if (m != g_mode) logf("mode %d -> %d", (int)g_mode, (int)m);
     if (m != g_mode) {
         g_mode = m;
         g_alpha.x = 0;
         g_alpha.t = 1;
-        if (m != Mode::Card) { g_page = Page::Main; g_edit = false; g_confirm.clear(); }
+        if (m != Mode::Card) { closeWallpapers(); g_page = Page::Main; g_edit = false; g_confirm.clear(); }
     }
     Target t = targetFor(m);
     g_w.t = t.w;
@@ -430,6 +443,7 @@ bool stepAnim(float dt) {
     a |= g_alpha.step(dt, 260, 32, 0.004f);
     a |= g_bubble.step(dt, 420, 22, 0.004f);
     a |= g_shade.step(dt, 300, 34, 0.004f);
+    if (g_page == Page::Wallpapers) a |= g_wallPos.step(dt, 300, 34.6f, 0.002f);   // critically damped
     return a;
 }
 
@@ -983,6 +997,125 @@ void drawPowerPage(Canvas& c, float x0, float y0) {
     }
 }
 
+// ------------------------------------------------------------ wallpapers
+// A carousel like Tide Island's switcher: the middle card is full size, its
+// neighbours shrink and fade. Same geometry as the Sway build.
+constexpr float kWallH = 118, kWallFrac = 0.40f, kWallSpacing = 0.31f, kWallSide = 0.76f;
+
+struct WallCard { D2D1_RECT_F r; float alpha, radius; };
+WallCard wallCard(float x, float y, float width, float offset) {
+    float d = std::fabs(offset);
+    float scale = 1 - (1 - kWallSide) * std::min(d, 1.f) - 0.10f * std::max(d - 1, 0.f);
+    float alpha = 1 - 0.35f * std::min(d, 1.f) - 0.45f * std::max(d - 1, 0.f);
+    float w = width * kWallFrac * scale, h = w * 0.575f;
+    float cx = x + width / 2 + offset * width * kWallSpacing * (1 - 0.08f * std::max(d - 1, 0.f));
+    float cy = y + kWallH / 2;
+    return {D2D1::RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), std::max(0.f, alpha), 13 * scale};
+}
+
+void wallFilter() {
+    std::wstring keep = g_wallItems.empty() ? g_wallActive : g_wallItems[(size_t)g_wallTarget];
+    g_wallItems.clear();
+    for (auto& p : g_wallAll) if (wallpaper::Matches(p, g_wallQuery)) g_wallItems.push_back(p);
+    auto it = std::find(g_wallItems.begin(), g_wallItems.end(), keep);
+    g_wallTarget = it == g_wallItems.end() ? 0 : (int)(it - g_wallItems.begin());
+    g_wallPos.snap((float)g_wallTarget);
+}
+
+void wallGo(int i) {
+    if (g_wallItems.empty()) return;
+    g_wallTarget = std::clamp(i, 0, (int)g_wallItems.size() - 1);
+    g_wallPos.t = (float)g_wallTarget;
+    g_wallMsg.clear();
+    std::vector<std::wstring> nearby;
+    for (int k = std::max(0, g_wallTarget - 3); k < std::min((int)g_wallItems.size(), g_wallTarget + 4); k++)
+        nearby.push_back(g_wallItems[(size_t)k]);
+    wallpaper::Prioritise(nearby);
+    kick();
+}
+
+void openWallpapers(bool fromKeys) {
+    g_wallKeys = fromKeys;
+    g_wallAll = wallpaper::List();
+    g_wallActive = wallpaper::Current();
+    g_wallQuery.clear();
+    g_wallMsg.clear();
+    g_wallItems.clear();
+    wallFilter();
+    for (auto& p : g_wallAll) wallpaper::Get(p);   // queue every thumbnail now
+    wallGo(g_wallTarget);
+    g_page = Page::Wallpapers;
+    g_alpha.x = 0;
+}
+
+void closeWallpapers() {
+    if (g_wallAll.empty() && g_wallImgs.empty()) return;
+    g_wallAll.clear();
+    g_wallItems.clear();
+    g_wallImgs.clear();
+    wallpaper::Release();
+}
+
+void applyWallpaper() {
+    if (g_wallItems.empty()) return;
+    const std::wstring& p = g_wallItems[(size_t)g_wallTarget];
+    std::wstring err;
+    if (wallpaper::Set(p, err)) { g_wallActive = p; g_wallMsg.clear(); }
+    else g_wallMsg = L"Couldn't set it: " + err;
+    kick();
+}
+
+void drawWallpaperPage(Canvas& c, float x0, float y0) {
+    float x = x0 + kCardPad, w = kCardW - 2 * kCardPad, y = y0 + 18;
+    drawPageHeader(c, x, y, w, g_wallQuery.empty() ? L"Wallpapers" : L"“" + g_wallQuery + L"”");
+    D2D1_RECT_F folder = Rect(x + w - 34, y, 34, 34);
+    if (hovered(L"wfolder")) c.FillCircle(folder.left + 17, folder.top + 17, 16, Color(1, 1, 1, 0.1f));
+    DrawIcon(c, L"folder", folder.left + 17, folder.top + 17, 17, pal::ink2, 1.6f);
+    hit(folder, L"wfolder");
+    y += 42;
+    D2D1_RECT_F area = Rect(x0 + 8, y, kCardW - 16, kWallH);
+    hit(area, L"wall-area");
+    if (g_wallItems.empty()) {
+        std::wstring t = g_wallAll.empty() ? L"No images in " + wallpaper::Folder()
+                                           : L"Nothing matches “" + g_wallQuery + L"”";
+        c.Text(t, area, 12, pal::ink3, DWRITE_FONT_WEIGHT_NORMAL, Align::Center);
+        return;
+    }
+    c.PushClipRect(area);
+    std::vector<int> order;
+    for (int i = 0; i < (int)g_wallItems.size(); i++)
+        if (std::fabs(i - g_wallPos.x) < 2.6f) order.push_back(i);
+    std::sort(order.begin(), order.end(),
+              [](int a, int b) { return std::fabs(a - g_wallPos.x) > std::fabs(b - g_wallPos.x); });
+    for (int i : order) {
+        const std::wstring& path = g_wallItems[(size_t)i];
+        WallCard k = wallCard(area.left, y, area.right - area.left, i - g_wallPos.x);
+        auto img = g_wallImgs.find(path);
+        if (img == g_wallImgs.end()) {
+            if (const wallpaper::Thumb* t = wallpaper::Get(path); t && t->w)
+                img = g_wallImgs.emplace(path, Image()).first, img->second.FromPixels(t->w, t->h, t->pixels);
+        }
+        if (img != g_wallImgs.end() && img->second.src)
+            c.DrawImage(img->second, k.r, k.radius, k.alpha);
+        else
+            c.FillRound(k.r, k.radius, Color(0.16f, 0.16f, 0.16f, k.alpha));
+        c.StrokeRound(Inset(k.r, 0.5f, 0.5f), k.radius, Color(1, 1, 1, 0.10f * k.alpha), 1);
+        if (path == g_wallActive)
+            c.StrokeRound(Inset(k.r, 1.25f, 1.25f), k.radius - 1, pal::accent().alpha(k.alpha), 2.5f);
+        hit(k.r, L"wall", i);
+    }
+    c.PopClipRect();
+    y += kWallH + 6;
+    std::wstring name = g_wallMsg;
+    if (name.empty()) {
+        const std::wstring& p = g_wallItems[(size_t)g_wallTarget];
+        name = wallpaper::Name(p) + (p == g_wallActive ? L"  ·  current" : L"") + L"   " +
+               std::to_wstring(g_wallTarget + 1) + L"/" + std::to_wstring(g_wallItems.size());
+    }
+    c.Text(name, Rect(x, y, w, 20), 11.5f, g_wallMsg.empty() ? pal::ink2 : pal::warn, DWRITE_FONT_WEIGHT_NORMAL,
+           Align::Center);
+}
+
 // ------------------------------------------------------------ render
 D2D1_RECT_F shapeRect() {
     float w = g_w.x, h = g_h.x;
@@ -1024,6 +1157,7 @@ void render() {
             float x0 = kWinW / 2 - kCardW / 2, y0 = topY();
             if (g_page == Page::Main) drawMainPage(c, x0, y0);
             else if (g_page == Page::Clipboard) drawClipboardPage(c, x0, y0);
+            else if (g_page == Page::Wallpapers) drawWallpaperPage(c, x0, y0);
             else drawPowerPage(c, x0, y0);
         } else if (g_mode == Mode::Peek) {
             Target t = targetFor(Mode::Peek);
@@ -1158,6 +1292,9 @@ void controlClick(const std::wstring& id) {
         g_page = Page::Clipboard;
         g_alpha.x = 0;
         relayout();
+    } else if (id == L"wallpaper") {
+        openWallpapers(false);
+        relayout();
     } else if (id == L"lock") {
         closeCard();
         sys::Lock();
@@ -1284,7 +1421,9 @@ void click(const std::wstring& id, int idx, float x) {
     else if (id == L"settings") { closeCard(); panel::Show(); }
     else if (id == L"powerpage") { g_page = Page::Power; g_alpha.x = 0; relayout(); }
     else if (id == L"edit") { g_edit = !g_edit; relayout(); }
-    else if (id == L"back") { g_page = Page::Main; g_alpha.x = 0; relayout(); }
+    else if (id == L"back") { closeWallpapers(); g_page = Page::Main; g_alpha.x = 0; relayout(); }
+    else if (id == L"wall") { if (idx == g_wallTarget) applyWallpaper(); else wallGo(idx); }
+    else if (id == L"wfolder") sys::OpenUri(wallpaper::Folder().c_str());
     else if (id == L"clear") { clipboard::Clear(); relayout(); }
     else if (id == L"clip") {
         auto items = clipboard::History();
@@ -1587,7 +1726,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_MOUSEWHEEL: {
         int delta = GET_WHEEL_DELTA_WPARAM(w);
-        if (g_hover == L"pill" || g_hover == L"vol") {
+        if (g_page == Page::Wallpapers && g_mode == Mode::Card &&
+            (g_hover == L"wall" || g_hover == L"wall-area")) {
+            wallGo(g_wallTarget + (delta > 0 ? -1 : 1));
+        } else if (g_hover == L"pill" || g_hover == L"vol") {
             audio::SetVolume(audio::Volume() + (delta > 0 ? 0.05f : -0.05f));
         } else if (g_hover == L"bright" && g_brightness >= 0) {
             g_brightness = std::clamp(g_brightness + (delta > 0 ? 5 : -5), 0, 100);
@@ -1603,10 +1745,32 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_KEYDOWN:
+        if (g_mode == Mode::Card && g_page == Page::Wallpapers) {
+            if (w == VK_RIGHT || (w == VK_TAB && !(GetKeyState(VK_SHIFT) & 0x8000))) wallGo(g_wallTarget + 1);
+            else if (w == VK_LEFT || w == VK_TAB) wallGo(g_wallTarget - 1);
+            else if (w == VK_HOME) wallGo(0);
+            else if (w == VK_END) wallGo((int)g_wallItems.size() - 1);
+            else if (w == VK_RETURN) applyWallpaper();
+            else if (w == VK_BACK && !g_wallQuery.empty()) { g_wallQuery.pop_back(); wallFilter(); wallGo(g_wallTarget); }
+            else if (w == VK_ESCAPE) {
+                if (!g_wallQuery.empty()) { g_wallQuery.clear(); wallFilter(); wallGo(g_wallTarget); }
+                else if (g_wallKeys) closeCard();
+                else { closeWallpapers(); g_page = Page::Main; g_alpha.x = 0; relayout(); }
+            }
+            return 0;
+        }
         if (w == VK_ESCAPE) {
             if (g_edit) { g_edit = false; relayout(); }
             else if (g_page != Page::Main) { g_page = Page::Main; g_alpha.x = 0; relayout(); }
             else closeCard();
+        }
+        return 0;
+    case WM_CHAR:
+        // typing in the picker searches by file name
+        if (g_mode == Mode::Card && g_page == Page::Wallpapers && w >= 32 && w != 127 && g_wallQuery.size() < 40) {
+            g_wallQuery.push_back((wchar_t)w);
+            wallFilter();
+            wallGo(g_wallTarget);
         }
         return 0;
     case WM_HOTKEY:
@@ -1662,6 +1826,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case CMD_TOGGLE: app::ToggleCard(); break;
         case CMD_OPEN: openCard(); break;
         case CMD_CLOSE: closeCard(); break;
+        case CMD_WALLPAPERS:
+            if (g_mode == Mode::Card && g_page == Page::Wallpapers) closeCard();
+            else { openCard(); openWallpapers(true); relayout(); }
+            break;
         case CMD_TIMER: toggleTimer(); break;
         case CMD_SETTINGS: panel::Show(); break;
         case CMD_QUIT: app::Quit(); break;
@@ -1717,6 +1885,7 @@ bool Create(HINSTANCE inst) {
     network::Start(g_hwnd);
     weather::Start(g_hwnd);
     clipboard::Start(g_hwnd);
+    wallpaper::Start(g_hwnd);
     claude::Start(g_hwnd);
     downloads::Start(g_hwnd);
     g_lastVol = audio::Volume();
@@ -1802,6 +1971,7 @@ void DebugState(const std::wstring& state) {
     else if (state == L"edit") { openCard(); g_edit = true; relayout(); }
     else if (state == L"clipboard") { openCard(); g_page = Page::Clipboard; relayout(); }
     else if (state == L"power") { openCard(); g_page = Page::Power; relayout(); }
+    else if (state == L"wallpapers") { openCard(); openWallpapers(false); relayout(); }
     else if (state == L"volume") peek(L"speaker", L"Volume", L"", 0.62f);
     else if (state == L"timer") toggleTimer();
     else if (state == L"caps") peek(L"capslock", L"Caps Lock on", L"", -1);
