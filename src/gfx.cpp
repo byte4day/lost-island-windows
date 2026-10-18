@@ -47,7 +47,7 @@ void Gfx::Shutdown() {
 void Image::Reset() {
     SafeRelease(bmp);
     SafeRelease(src);
-    owner = nullptr;
+    ownerGen = 0;
     w = h = 0;
 }
 
@@ -145,12 +145,12 @@ bool Image::FromPixels(UINT pw, UINT ph, const std::vector<uint8_t>& pbgra) {
     return true;
 }
 
-ID2D1Bitmap* Image::For(ID2D1RenderTarget* rt) {
-    if (!src) return nullptr;
-    if (bmp && owner == rt) return bmp;
+ID2D1Bitmap* Image::For(ID2D1RenderTarget* rt, uint64_t gen) {
+    if (!src || !rt) return nullptr;
+    if (bmp && ownerGen == gen) return bmp;
     SafeRelease(bmp);
-    owner = rt;
-    rt->CreateBitmapFromWicBitmap(src, nullptr, &bmp);
+    ownerGen = gen;
+    if (FAILED(rt->CreateBitmapFromWicBitmap(src, nullptr, &bmp))) bmp = nullptr;
     return bmp;
 }
 
@@ -165,7 +165,9 @@ void Canvas::Attach(ID2D1RenderTarget* rt) {
     formats_.clear();
     for (auto* l : layers_) l->Release();
     layers_.clear();
+    static uint64_t s_gen = 0;
     rt_ = rt;
+    gen_ = rt ? ++s_gen : 0;
     if (rt_) {
         rt_->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1), &brush_);
         D2D1_STROKE_STYLE_PROPERTIES sp = D2D1::StrokeStyleProperties(
@@ -326,7 +328,7 @@ float Canvas::Measure(const std::wstring& s, float size, DWRITE_FONT_WEIGHT w, b
 // Images are painted with a bitmap brush inside the rounded shape, so the
 // edge is anti-aliased and nothing ever spills outside it (no layer needed).
 void Canvas::DrawImage(Image& img, D2D1_RECT_F r, float radius, float opacity) {
-    ID2D1Bitmap* b = img.For(rt_);
+    ID2D1Bitmap* b = img.For(rt_, gen_);
     if (!b) return;
     float sw = (float)img.w, sh = (float)img.h;
     float dw = r.right - r.left, dh = r.bottom - r.top;
@@ -390,29 +392,33 @@ void LayeredSurface::Free() {
         dc_ = nullptr;
     }
     if (bmp_) { DeleteObject(bmp_); bmp_ = nullptr; }
-    w_ = h_ = 0;
+    w_ = h_ = capW_ = capH_ = 0;
 }
 
 bool LayeredSurface::Begin(int w, int h, float dpiScale) {
     w = std::max(w, 1);
     h = std::max(h, 1);
-    if (w != w_ || h != h_ || !rt_) {
+    // The island changes height on every animation frame. Rebuilding the DIB
+    // and render target each frame was slow and dropped every cached bitmap,
+    // so the DIB only grows (in 128 px steps) and each frame uses its top-left.
+    if (w > capW_ || h > capH_ || !rt_) {
+        int cw = std::max(w, capW_), ch = std::max((h + 127) / 128 * 128, capH_);
         Free();
         HDC screen = GetDC(nullptr);
         dc_ = CreateCompatibleDC(screen);
         ReleaseDC(nullptr, screen);
         BITMAPINFO bi{};
         bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
-        bi.bmiHeader.biWidth = w;
-        bi.bmiHeader.biHeight = -h;
+        bi.bmiHeader.biWidth = cw;
+        bi.bmiHeader.biHeight = -ch;
         bi.bmiHeader.biPlanes = 1;
         bi.bmiHeader.biBitCount = 32;
         bi.bmiHeader.biCompression = BI_RGB;
         bmp_ = CreateDIBSection(dc_, &bi, DIB_RGB_COLORS, &bits_, nullptr, 0);
         if (!bmp_) { Free(); return false; }
         old_ = SelectObject(dc_, bmp_);
-        w_ = w;
-        h_ = h;
+        capW_ = cw;
+        capH_ = ch;
         D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
             D2D1_RENDER_TARGET_TYPE_DEFAULT,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 0, 0,
@@ -421,7 +427,9 @@ bool LayeredSurface::Begin(int w, int h, float dpiScale) {
         rt_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
         canvas_.Attach(rt_);
     }
-    RECT rc{0, 0, w_, h_};
+    w_ = w;
+    h_ = h;
+    RECT rc{0, 0, capW_, capH_};
     rt_->BindDC(dc_, &rc);
     rt_->SetDpi(96.f * dpiScale, 96.f * dpiScale);
     rt_->BeginDraw();

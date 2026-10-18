@@ -111,6 +111,8 @@ MediaInfo g_media;
 Image g_art;
 uint64_t g_artVersion = 0;
 std::wstring g_lastTitle;
+ULONGLONG g_lastPlayingTick = 0;     // last time media reported playing
+constexpr ULONGLONG kPausedLingerMs = 30000;
 float g_lastVol = -1;
 bool g_lastMute = false;
 bool g_lastPlugged = false;
@@ -233,6 +235,9 @@ std::wstring appName(const std::wstring& aumid) {
 
 bool cardStyleGraphite() { return g_config.cardStyle == L"graphite"; }
 bool notch() { return g_config.shape == L"notch"; }
+// A notch is glued to the screen edge, so a floating bubble beside it looks
+// broken; there the second activity sits inside the notch's trailing end.
+constexpr float kInnerBubble = kBubble + 4;
 float topY() { return notch() ? 0.f : (float)g_config.offsetY; }
 
 // ------------------------------------------------------------ activities
@@ -244,19 +249,18 @@ std::vector<Act> activities() {
         const auto& s = sessions.front().state;
         claudeAct = s == L"needs" ? Act::ClaudeNeeds : s == L"done" ? Act::ClaudeDone : Act::ClaudeWork;
     }
-    bool music = g_config.actMusic && g_media.active && g_media.playing && !g_media.title.empty();
+    // paused music stays up for a while so the pill doesn't flicker between tracks or on a quick pause
+    bool recent = g_media.playing || (g_lastPlayingTick && now() - g_lastPlayingTick < kPausedLingerMs);
+    bool music = g_config.actMusic && g_media.active && recent && !g_media.title.empty();
     if (claudeAct == Act::ClaudeNeeds) out.push_back(claudeAct);
     if (music) out.push_back(Act::Music);
     if (claudeAct == Act::ClaudeWork || claudeAct == Act::ClaudeDone) out.push_back(claudeAct);
     if (g_config.actDownloads && !downloads::Active().empty()) out.push_back(Act::Download);
     if (g_config.actTimer && (g_timerRun || (g_timerLeftMs > 0 && g_timerLeftMs < g_timerTotalMs)))
         out.push_back(Act::Timer);
-    // on the weather face, music moves to the bubble instead of replacing the clock
-    if (g_config.face == L"weather" && !out.empty() && out.front() == Act::Music) {
-        out.erase(out.begin());
-        out.insert(out.begin(), Act::None);
-        if (out.size() > 1) std::swap(out[1], out[0]), std::swap(out[0], out[1]);
-    }
+    // on the weather face the clock keeps the pill and music moves to the bubble
+    // (it used to be dropped altogether, so music never showed on that face)
+    if (g_config.face == L"weather" && !out.empty() && out.front() == Act::Music) out.insert(out.begin(), Act::None);
     return out;
 }
 
@@ -388,7 +392,9 @@ Target targetFor(Mode m) {
         float w = std::clamp(20 + 24 + 12 + tw + 16 + dw + 20, 240.f, 380.f);
         return {w, kPeekH, kPeekH / 2};
     }
-    return {pillWidth(primaryAct()), kPillH, kPillH / 2};
+    float w = pillWidth(primaryAct());
+    if (notch() && secondaryAct() != Act::None && !g_hidden) w += kInnerBubble;
+    return {w, kPillH, kPillH / 2};
 }
 
 // ------------------------------------------------------------ monitor and placement
@@ -427,7 +433,7 @@ void setMode(Mode m) {
     g_h.t = t.h;
     g_r.t = t.r;
     g_shade.t = m == Mode::Card ? 1.f : 0.f;
-    g_bubble.t = (m != Mode::Card && secondaryAct() != Act::None && !g_hidden) ? 1.f : 0.f;
+    g_bubble.t = (m != Mode::Card && secondaryAct() != Act::None && !g_hidden && !notch()) ? 1.f : 0.f;
     kick();
 }
 
@@ -526,7 +532,8 @@ void drawPillContent(Canvas& c, D2D1_RECT_F r, Act a) {
         else { c.FillCircle(L + 19, cy, 12, pal::raisedHover); DrawIcon(c, L"music", L + 19, cy, 13, pal::ink2, 1.4f); }
         c.Text(g_media.title, D2D1::RectF(L + 40, r.top, R - 40, r.bottom), 13, Color(0.96f, 0.96f, 0.97f, 0.92f),
                DWRITE_FONT_WEIGHT_SEMI_BOLD);
-        if (g_config.showEq) drawEq(c, R - 30, cy, 15, artColor());
+        if (!g_media.playing) DrawIcon(c, L"pause", R - 24, cy, 13, pal::ink3, 1.6f);
+        else if (g_config.showEq) drawEq(c, R - 30, cy, 15, artColor());
         break;
     }
     case Act::ClaudeNeeds:
@@ -1133,14 +1140,20 @@ void render() {
     Canvas& c = g_surf.canvas();
     bool hide = g_hidden && g_mode == Mode::Rest;
 
-    if (!hide && !g_wine) {
-        // soft shadow, stronger for the card
-        float sh = 0.035f + 0.05f * std::clamp(g_shade.x, 0.f, 1.f);
-        for (int i = 1; i <= 5; i++) {
-            float grow = i * 4.f;
-            c.FillRound(D2D1::RectF(s.left - grow * 0.5f, s.top + grow * 0.6f, s.right + grow * 0.5f, s.bottom + grow * 1.1f),
-                        g_r.x + grow * 0.7f, Color(0, 0, 0, sh * (6 - i) / 5.f));
+    float shade = std::clamp(g_shade.x, 0.f, 1.f);
+    if (!hide && !g_wine && shade > 0.01f) {
+        // Soft shadow under the card only (the pill is black on the bezel, like
+        // Apple's). Many thin rings instead of five wide ones, so it fades
+        // smoothly instead of showing bands. A notch never casts upwards.
+        if (notch()) c.PushClipRect(D2D1::RectF(0, s.top + g_r.x, kWinW, s.bottom + kShadow));
+        constexpr int kRings = 14;
+        for (int i = kRings; i >= 1; i--) {
+            float grow = i * 1.8f, t = (float)i / kRings;
+            float a = 0.05f * shade * (1 - t) * (1 - t);
+            c.FillRound(D2D1::RectF(s.left - grow * 0.6f, s.top + grow * 0.5f, s.right + grow * 0.6f, s.bottom + grow * 1.2f),
+                        g_r.x + grow, Color(0, 0, 0, a));
         }
+        if (notch()) c.PopClipRect();
     }
     if (!hide) {
         Color bg = (g_mode == Mode::Card && cardStyleGraphite()) ? Color::Hex(0x1C1C1E) : Color(0, 0, 0, 1);
@@ -1164,11 +1177,23 @@ void render() {
             drawPeek(c, Rect(kWinW / 2 - t.w / 2, topY(), t.w, t.h));
         } else {
             Target t = targetFor(Mode::Rest);
-            drawPillContent(c, Rect(kWinW / 2 - t.w / 2, topY(), t.w, t.h), primaryAct());
+            bool inner = notch() && secondaryAct() != Act::None && !g_hidden;
+            drawPillContent(c, Rect(kWinW / 2 - t.w / 2, topY(), t.w - (inner ? kInnerBubble : 0), t.h), primaryAct());
         }
         c.PopOpacity();
         c.PopClipRect();
         if (g_mode != Mode::Card) hit(s, L"pill");
+
+        // notch: the second activity at the trailing end, inside the shape
+        if (g_mode == Mode::Rest && notch() && !g_hidden && secondaryAct() != Act::None) {
+            float cx = s.right - kInnerBubble / 2 - 2, cy = topY() + kPillH / 2;
+            c.PushClipRect(s);
+            c.PushOpacity(std::clamp(g_alpha.x, 0.f, 1.f));
+            drawBubbleContent(c, cx, cy, kBubble, secondaryAct());
+            c.PopOpacity();
+            c.PopClipRect();
+            hit(Rect(cx - kBubble / 2, topY(), kBubble, kPillH), L"bubble");
+        }
 
         // the detached bubble for the second live activity
         Act second = secondaryAct();
@@ -1482,6 +1507,7 @@ void refreshMedia() {
         else g_art.Decode(m.art, 256);
     }
     g_media = m;
+    if (m.playing) g_lastPlayingTick = now();
     if (trackChanged && !g_lastTitle.empty() && g_config.peekTrack && m.playing && g_mode == Mode::Rest &&
         primaryAct() != Act::Music)
         peek(L"art", m.title, m.artist, -1);
@@ -1538,12 +1564,16 @@ void tick() {
         g_media = media::Get();   // keeps the seek position moving
         if (g_demo) demoMedia(g_media);
     }
+    if (g_media.playing) g_lastPlayingTick = now();
     relayout();
     if (!g_animating) render();
 }
 
 void stepEq(float dt) {
     float target = std::clamp(audio::Peak() * 1.6f, 0.f, 1.f);
+    // No meter reading (exclusive-mode output, a muted tab, a Bluetooth
+    // device that reports nothing): keep the bars dancing instead of flat dashes.
+    if (g_media.playing && target < 0.05f) target = 0.55f;
     if (!g_media.playing) target = 0.12f;
     g_peak += (target - g_peak) * std::min(1.f, dt * 12);
     for (int i = 0; i < 4; i++) {

@@ -69,12 +69,14 @@ struct Image {
     UINT w = 0, h = 0;
     Color average;                // mean color, for tinting the player
     ID2D1Bitmap* bmp = nullptr;
-    ID2D1RenderTarget* owner = nullptr;
+    uint64_t ownerGen = 0;        // generation of the render target `bmp` belongs to
 
     bool Decode(const std::vector<uint8_t>& bytes, UINT maxSide = 256);
     bool LoadResource(int id, const wchar_t* type = L"PNG");
     bool FromPixels(UINT w, UINT h, const std::vector<uint8_t>& pbgra);   // 32bpp premultiplied BGRA
-    ID2D1Bitmap* For(ID2D1RenderTarget* rt);
+    // Device bitmap for a target. Targets are told apart by generation, not
+    // by pointer: a new target can land at a freed one's address.
+    ID2D1Bitmap* For(ID2D1RenderTarget* rt, uint64_t gen);
     void Reset();
     ~Image() { Reset(); }
 };
@@ -85,6 +87,7 @@ public:
     ~Canvas();
     void Attach(ID2D1RenderTarget* rt);
     ID2D1RenderTarget* rt() const { return rt_; }
+    uint64_t gen() const { return gen_; }
 
     void Clear(Color c = Color(0, 0, 0, 0));
     void FillRect(D2D1_RECT_F r, Color c);
@@ -121,6 +124,7 @@ public:
 private:
     IDWriteTextFormat* Format(float size, DWRITE_FONT_WEIGHT w, Align a, bool mono);
     ID2D1RenderTarget* rt_ = nullptr;
+    uint64_t gen_ = 0;
     ID2D1SolidColorBrush* brush_ = nullptr;
     ID2D1StrokeStyle* roundCap_ = nullptr;
     std::map<std::tuple<int, int, int, int>, IDWriteTextFormat*> formats_;
@@ -145,7 +149,8 @@ private:
     HBITMAP bmp_ = nullptr;
     HGDIOBJ old_ = nullptr;
     void* bits_ = nullptr;
-    int w_ = 0, h_ = 0;
+    int w_ = 0, h_ = 0;               // size of this frame
+    int capW_ = 0, capH_ = 0;         // size of the DIB; only grows, so resizing never rebuilds the target
     ID2D1DCRenderTarget* rt_ = nullptr;
     Canvas canvas_;
 };

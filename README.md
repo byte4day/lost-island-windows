@@ -18,7 +18,7 @@ Windows SmartScreen may warn about an unsigned app the first time. Choose **More
 
 ## The island
 
-- **Resting pill.** A black capsule, 37 px tall like the iPhone's island, with the Windows mark and the clock, or the clock and the weather. Switch the shape to **Notch** to hang it from the top edge like a MacBook.
+- **Resting pill.** A black capsule, 37 px tall like the iPhone's island, with the Windows mark and the clock, or the clock and the weather. Switch the shape to **Notch** to hang it from the top edge like a MacBook; there a second live activity sits inside the notch instead of in a separate bubble.
 - **Live activities.** The most important activity fills the pill, and the next one gets its own round bubble beside it:
   1. **Claude Code needs you.** The Claude spark and, in orange, what it is asking ("Allow Bash?").
   2. **Music.** Album art, title and EQ bars that move with the real output level, in the album's color. The source is Windows' media controls, so Spotify, browsers, Media Player and VLC all work.
@@ -28,9 +28,9 @@ Windows SmartScreen may warn about an unsigned app the first time. Choose **More
 - **Peeks.** Volume, Caps Lock, plugging in the charger, a new track, a picked color and saved screenshots show for a moment and then go away.
 - **Motion.** Every change of shape runs on a spring: the island overshoots a little and settles. Buttons press in, and edit mode jiggles. **Reduce motion** in Settings turns the overshoot off.
 
-| Resting | Volume peek | Notch with a timer (orange accent) |
+| Resting | Volume peek | Notch playing music |
 |---|---|---|
-| <img src="media/pill.png" alt="Resting pill with the Windows mark and 11:14 PM" height="40"> | <img src="media/peek.png" alt="Volume peek with a bar at 62" height="40"> | <img src="media/notch.png" alt="Notch shape with an orange timer ring and 17:58" height="34"> |
+| <img src="media/pill.png" alt="Resting pill with the Windows mark and 11:14 PM" height="40"> | <img src="media/peek.png" alt="Volume peek with a bar at 62" height="40"> | <img src="media/notch.png" alt="Notch shape with round album art, the track title and EQ bars" height="34"> |
 
 ### Using it
 

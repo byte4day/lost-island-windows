@@ -95,9 +95,12 @@ private:
     void ClearArt(bool& artChanged);
     void Publish(MediaInfo&& next, bool artChanged);
     void Exec(const Cmd& cmd);
+    bool PickSession(Ptr<IGSMTCSession>& out);
 
     Ptr<IGSMTCSessionManagerStatics> statics_;
     Ptr<IGSMTCSessionManager> manager_;
+    Ptr<IGSMTCSession> shown_;            // the session the island shows; commands go here
+    std::wstring shownApp_;               // its AUMID, to keep following it while paused
     ULONGLONG nextActivation_ = 0;
 
     INT64 timelineStart_ = 0;             // ticks, for Seek
@@ -167,29 +170,67 @@ void Worker::ClearArt(bool& artChanged) {
     }
 }
 
+INT32 SessionStatus(IGSMTCSession* s) {
+    Ptr<IGSMTCSessionPlaybackInfo> playback;
+    INT32 status = Gsmtc_Closed;
+    if (SUCCEEDED(s->GetPlaybackInfo(playback.Put())) && playback) playback->get_PlaybackStatus(&status);
+    return status;
+}
+
+std::wstring SessionApp(IGSMTCSession* s) {
+    HStr app;
+    return SUCCEEDED(s->get_SourceAppUserModelId(app.Put())) ? app.Str() : std::wstring();
+}
+
+// Windows' "current" session is whichever app touched its media controls
+// last, often a paused browser tab while Spotify plays. Prefer, in order:
+// the current session if it is playing, any playing session, the session
+// shown last (so pausing doesn't make the player jump), then the current one.
+bool Worker::PickSession(Ptr<IGSMTCSession>& out) {
+    out.Reset();
+    Ptr<IGSMTCSession> current;
+    if (FAILED(manager_->GetCurrentSession(current.Put()))) return false;   // e.g. RPC_E_DISCONNECTED
+    if (current && SessionStatus(current.Get()) == Gsmtc_Playing) { out = std::move(current); return true; }
+
+    Ptr<IVectorView<IGSMTCSession*>> all;
+    UINT32 n = 0;
+    if (SUCCEEDED(manager_->GetSessions(all.Put())) && all && SUCCEEDED(all->get_Size(&n))) {
+        Ptr<IGSMTCSession> sameApp;
+        for (UINT32 i = 0; i < n && i < 32; i++) {
+            Ptr<IGSMTCSession> s;
+            if (FAILED(all->GetAt(i, s.Put())) || !s) continue;
+            if (SessionStatus(s.Get()) == Gsmtc_Playing) { out = std::move(s); return true; }
+            if (!sameApp && !shownApp_.empty() && SessionApp(s.Get()) == shownApp_) sameApp = std::move(s);
+        }
+        if (sameApp) { out = std::move(sameApp); return true; }
+    }
+    out = std::move(current);
+    return true;
+}
+
 void Worker::Poll(MediaInfo& out, bool& artChanged) {
     out = MediaInfo{};
     artChanged = false;
 
     Ptr<IGSMTCSession> session;
-    if (EnsureManager()) {
-        if (FAILED(manager_->GetCurrentSession(session.Put()))) {
-            // e.g. RPC_E_DISCONNECTED after the shell restarted: request a new manager.
-            session.Reset();
-            manager_.Reset();
-            nextActivation_ = 0;
-        }
+    if (EnsureManager() && !PickSession(session)) {
+        // the shell restarted: request a new manager
+        session.Reset();
+        manager_.Reset();
+        nextActivation_ = 0;
     }
     if (!session) {
+        shown_.Reset();
+        shownApp_.clear();
         timelineStart_ = 0;
         ClearArt(artChanged);
         out.artVersion = artVersion_;
         return;
     }
     out.active = true;
-
-    HStr app;
-    if (SUCCEEDED(session->get_SourceAppUserModelId(app.Put()))) out.appId = app.Str();
+    out.appId = SessionApp(session.Get());
+    if (out.appId != shownApp_) artKeyValid_ = false;   // another app: re-read the art even for the same title
+    shownApp_ = out.appId;
 
     Ptr<IGSMTCSessionPlaybackInfo> playback;
     if (SUCCEEDED(session->GetPlaybackInfo(playback.Put())) && playback) {
@@ -254,6 +295,7 @@ void Worker::Poll(MediaInfo& out, bool& artChanged) {
         }
     }
     out.artVersion = artVersion_;
+    shown_ = std::move(session);
 }
 
 void Worker::Publish(MediaInfo&& next, bool artChanged) {
@@ -286,8 +328,7 @@ void Worker::Publish(MediaInfo&& next, bool artChanged) {
 }
 
 void Worker::Exec(const Cmd& cmd) {
-    Ptr<IGSMTCSession> session;
-    if (manager_ && FAILED(manager_->GetCurrentSession(session.Put()))) session.Reset();
+    IGSMTCSession* session = shown_.Get();
     if (!session) {
         KeyFallback(cmd.kind);
         return;
@@ -302,10 +343,12 @@ void Worker::Exec(const Cmd& cmd) {
         hr = session->TryChangePlaybackPositionAsync(timelineStart_ + cmd.ticks, op.Put());
         break;
     }
-    if (SUCCEEDED(hr) && op) {
-        BYTE ok = 0;
-        AwaitResult(op.Get(), kCommandTimeoutMs, g_stop, &ok);
-    }
+    // Some players refuse GSMTC requests (the call fails or answers false);
+    // then the media keys reach whatever Windows routes them to. A request
+    // that only timed out may still land, so it is not sent twice.
+    BYTE ok = 0;
+    bool answered = SUCCEEDED(hr) && op && AwaitResult(op.Get(), kCommandTimeoutMs, g_stop, &ok);
+    if (FAILED(hr) || (answered && !ok)) KeyFallback(cmd.kind);
 }
 
 void Worker::Run() {
